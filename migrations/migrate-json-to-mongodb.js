@@ -10,7 +10,7 @@ const Order = require('../models/mongoose/Order');
 const Category = require('../models/mongoose/Category');
 const Review = require('../models/mongoose/Review');
 
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017,localhost:27018,localhost:27019/food-delivery?replicaSet=rs0';
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017,localhost:27018,localhost:27019/food-delivery?replicaSet=myReplicaSet';
 const DATA_DIR = path.join(__dirname, '../data');
 
 function readJSON(filename) {
