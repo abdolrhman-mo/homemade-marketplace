@@ -1,5 +1,4 @@
-const { User: UserModel } = require('./index');
-const { Op } = require('sequelize');
+const UserModel = require('./mongoose/User');
 
 // Validation: Check email format
 function isValidEmail(email) {
@@ -38,43 +37,36 @@ function validateLogin(data) {
 }
 
 const User = {
-    // Ensure data exists (no-op for database, kept for backward compatibility)
-    ensureDataExists() {
-        // Database tables are created via sequelize.sync()
-        // This method is kept for backward compatibility with server.js
-    },
+    ensureDataExists() {},
 
     // Get all users
     async findAll() {
-        const users = await UserModel.findAll();
+        const users = await UserModel.find({});
         return users.map(u => u.toSafeObject());
     },
 
     // Find user by ID
     async findById(id) {
-        const user = await UserModel.findByPk(parseInt(id));
+        const user = await UserModel.findById(id);
         return user ? user.toSafeObject() : undefined;
     },
 
     // Find user by email
     async findByEmail(email) {
-        const user = await UserModel.findOne({ where: { email } });
+        const user = await UserModel.findOne({ email });
         return user ? user.toSafeObject() : undefined;
     },
 
     // Find user by username (or email for login)
     async findByUsername(username) {
         const user = await UserModel.findOne({
-            where: {
-                [Op.or]: [{ username }, { email: username }]
-            }
+            $or: [{ username }, { email: username }]
         });
         return user ? user.toSafeObject() : undefined;
     },
 
     // Create new user
     async create(userData) {
-        // Validate input
         const errors = validateRegistration(userData);
         if (errors.length > 0) {
             return { success: false, errors };
@@ -83,19 +75,16 @@ const User = {
         try {
             // Check for existing user
             const existingUser = await UserModel.findOne({
-                where: {
-                    [Op.or]: [
-                        { email: userData.email },
-                        { username: userData.username }
-                    ]
-                }
+                $or: [
+                    { email: userData.email },
+                    { username: userData.username }
+                ]
             });
 
             if (existingUser) {
                 return { success: false, errors: ['User already exists'] };
             }
 
-            // Create new user (password will be hashed by hook)
             const newUser = await UserModel.create({
                 username: userData.username.trim(),
                 email: userData.email.trim(),
@@ -108,10 +97,11 @@ const User = {
                 user: newUser.toSafeObject()
             };
         } catch (error) {
-            if (error.name === 'SequelizeValidationError') {
-                return { success: false, errors: [error.errors[0].message] };
+            if (error.name === 'ValidationError') {
+                const firstError = Object.values(error.errors)[0];
+                return { success: false, errors: [firstError.message] };
             }
-            if (error.name === 'SequelizeUniqueConstraintError') {
+            if (error.code === 11000) {
                 return { success: false, errors: ['User already exists'] };
             }
             throw error;
@@ -121,7 +111,7 @@ const User = {
     // Update user
     async update(id, userData) {
         try {
-            const user = await UserModel.findByPk(parseInt(id));
+            const user = await UserModel.findById(id);
 
             if (!user) {
                 return { success: false, errors: ['User not found'] };
@@ -135,10 +125,8 @@ const User = {
 
                 if (whereConditions.length > 0) {
                     const existingUser = await UserModel.findOne({
-                        where: {
-                            id: { [Op.ne]: parseInt(id) },
-                            [Op.or]: whereConditions
-                        }
+                        _id: { $ne: id },
+                        $or: whereConditions
                     });
 
                     if (existingUser) {
@@ -160,10 +148,11 @@ const User = {
                 user: user.toSafeObject()
             };
         } catch (error) {
-            if (error.name === 'SequelizeValidationError') {
-                return { success: false, errors: [error.errors[0].message] };
+            if (error.name === 'ValidationError') {
+                const firstError = Object.values(error.errors)[0];
+                return { success: false, errors: [firstError.message] };
             }
-            if (error.name === 'SequelizeUniqueConstraintError') {
+            if (error.code === 11000) {
                 return { success: false, errors: ['Username or email already taken'] };
             }
             throw error;
@@ -172,16 +161,13 @@ const User = {
 
     // Validate credentials for login
     async validateCredentials(username, password) {
-        // Validate input
         const errors = validateLogin({ username, password });
         if (errors.length > 0) {
             return { success: false, errors };
         }
 
         const user = await UserModel.findOne({
-            where: {
-                [Op.or]: [{ username }, { email: username }]
-            }
+            $or: [{ username }, { email: username }]
         });
 
         if (user && await user.validatePassword(password)) {

@@ -1,26 +1,28 @@
-const { Category, Review, Meal } = require('./index');
+const Category = require('./mongoose/Category');
+const Review = require('./mongoose/Review');
+const Meal = require('./mongoose/Meal');
 
 const Home = {
     // Get all categories
     async getCategories() {
-        const categories = await Category.findAll();
-        return categories.map(c => c.get({ plain: true }));
+        const categories = await Category.find({});
+        return categories.map(c => c.toJSON());
     },
 
     // Get all reviews
     async getReviews() {
-        const reviews = await Review.findAll();
-        return reviews.map(r => r.get({ plain: true }));
+        const reviews = await Review.find({});
+        return reviews.map(r => r.toJSON());
     },
 
     // Get popular meals
     async getPopularMeals(limit = null) {
-        const options = {};
+        let query = Meal.find({});
         if (limit && limit > 0) {
-            options.limit = limit;
+            query = query.limit(limit);
         }
-        const meals = await Meal.findAll(options);
-        return meals.map(m => m.get({ plain: true }));
+        const meals = await query;
+        return meals.map(m => m.toJSON());
     }
 };
 

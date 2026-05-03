@@ -2,8 +2,8 @@ const express = require('express');
 const app = express();
 const PORT = 3000;
 
-// Import Sequelize database connection
-const { sequelize } = require('./models');
+// Import database connection
+const { connectDB } = require('./config/database');
 
 // Import routes
 const authRoutes = require('./routes/auth');
@@ -26,13 +26,13 @@ app.use('/api/meals', mealsRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/home', homeRoutes);
 
-// Sync database and start server
-sequelize.sync().then(() => {
-    console.log('Database synchronized');
+// Connect to MongoDB and start server
+connectDB().then(() => {
+    console.log('Database connected');
     app.listen(PORT, () => {
         console.log(`Server running on http://localhost:${PORT}`);
     });
 }).catch(err => {
-    console.error('Failed to sync database:', err);
+    console.error('Failed to connect to database:', err);
     process.exit(1);
 });

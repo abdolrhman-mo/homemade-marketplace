@@ -1,5 +1,4 @@
-const { Order: OrderModel, OrderItem: OrderItemModel } = require('./index');
-const { Op } = require('sequelize');
+const OrderModel = require('./mongoose/Order');
 
 // Status flow for automatic updates
 const STATUS_FLOW = ['processing', 'preparing', 'enroute', 'delivered'];
@@ -35,35 +34,25 @@ function validateOrder(orderData) {
     return errors;
 }
 
-// Helper: Format order with items for response (backward compatible format)
-function formatOrderWithItems(order, items) {
-    const orderData = order.get ? order.get({ plain: true }) : order;
-    const formattedItems = items.map(item => {
-        const itemData = item.get ? item.get({ plain: true }) : item;
-        return {
-            mealId: itemData.mealId,
-            name: itemData.name,
-            price: parseFloat(itemData.price),
-            quantity: itemData.quantity,
-            sellerId: itemData.sellerId
-        };
-    });
-
+// Helper: format order for response
+function formatOrder(order) {
+    const obj = order.toObject ? order.toObject() : order;
     return {
-        id: orderData.id,
-        userId: orderData.userId,
-        customer: {
-            name: orderData.customerName,
-            phone: orderData.customerPhone,
-            address: orderData.customerAddress,
-            notes: orderData.customerNotes || ''
-        },
-        items: formattedItems,
-        total: parseFloat(orderData.total),
-        paymentMethod: orderData.paymentMethod,
-        status: orderData.status,
-        createdAt: orderData.createdAt,
-        estimatedDelivery: orderData.estimatedDelivery
+        id: obj._id,
+        userId: obj.userId,
+        customer: obj.customer,
+        items: obj.items.map(item => ({
+            mealId: item.mealId,
+            name: item.name,
+            price: parseFloat(item.price),
+            quantity: item.quantity,
+            sellerId: item.sellerId
+        })),
+        total: parseFloat(obj.total),
+        paymentMethod: obj.paymentMethod,
+        status: obj.status,
+        createdAt: obj.createdAt,
+        estimatedDelivery: obj.estimatedDelivery
     };
 }
 
@@ -71,75 +60,44 @@ function formatOrderWithItems(order, items) {
 let statusSimulationInterval = null;
 
 const Order = {
-    // Ensure data exists (no-op for database, kept for backward compatibility)
-    ensureDataExists() {
-        // Database tables are created via sequelize.sync()
-    },
+    ensureDataExists() {},
 
     // Get all orders
     async findAll() {
-        const orders = await OrderModel.findAll({
-            include: [{ model: OrderItemModel, as: 'items' }],
-            order: [['createdAt', 'DESC']]
-        });
-
-        return orders.map(order => formatOrderWithItems(order, order.items || []));
+        const orders = await OrderModel.find({}).sort({ createdAt: -1 });
+        return orders.map(formatOrder);
     },
 
     // Find order by ID
     async findById(id) {
-        const order = await OrderModel.findByPk(parseInt(id), {
-            include: [{ model: OrderItemModel, as: 'items' }]
-        });
-
+        const order = await OrderModel.findById(id);
         if (!order) return undefined;
-        return formatOrderWithItems(order, order.items || []);
+        return formatOrder(order);
     },
 
-    // Find orders by user ID (orders placed BY this user)
+    // Find orders by user ID
     async findByUserId(userId) {
-        const userIdNum = parseInt(userId);
-        const orders = await OrderModel.findAll({
-            where: { userId: userIdNum },
-            include: [{ model: OrderItemModel, as: 'items' }],
-            order: [['createdAt', 'DESC']]
-        });
-
-        return orders.map(order => formatOrderWithItems(order, order.items || []));
+        const orders = await OrderModel.find({ userId }).sort({ createdAt: -1 });
+        return orders.map(formatOrder);
     },
 
-    // Find orders by seller ID (orders containing this user's meals)
+    // Find orders by seller ID (orders containing this seller's meals)
     async findBySellerId(sellerId) {
-        const sellerIdNum = parseInt(sellerId);
+        const orders = await OrderModel.find({
+            'items.sellerId': sellerId
+        }).sort({ createdAt: -1 });
 
-        // Find all order items for this seller
-        const sellerItems = await OrderItemModel.findAll({
-            where: { sellerId: sellerIdNum }
-        });
+        if (orders.length === 0) return [];
 
-        if (sellerItems.length === 0) {
-            return [];
-        }
-
-        // Get unique order IDs
-        const orderIds = [...new Set(sellerItems.map(item => item.orderId))];
-
-        // Fetch those orders
-        const orders = await OrderModel.findAll({
-            where: { id: { [Op.in]: orderIds } },
-            include: [{ model: OrderItemModel, as: 'items' }],
-            order: [['createdAt', 'DESC']]
-        });
-
-        // Filter items to only show this seller's items and calculate sellerTotal
         return orders.map(order => {
-            const orderData = formatOrderWithItems(order, order.items || []);
-            const sellerOnlyItems = orderData.items.filter(item => item.sellerId === sellerIdNum);
+            const orderData = formatOrder(order);
+            const sellerOnlyItems = orderData.items.filter(
+                item => item.sellerId && item.sellerId.toString() === sellerId.toString()
+            );
             const sellerTotal = sellerOnlyItems.reduce(
                 (sum, item) => sum + (item.price * item.quantity),
                 0
             );
-
             return {
                 ...orderData,
                 items: sellerOnlyItems,
@@ -150,52 +108,45 @@ const Order = {
 
     // Create new order
     async create(orderData) {
-        // Validate order data
         const errors = validateOrder(orderData);
         if (errors.length > 0) {
             return { success: false, errors };
         }
 
         try {
-            // Calculate total from items
             const total = orderData.items.reduce((sum, item) => {
                 return sum + (parseFloat(item.price) * parseInt(item.quantity));
             }, 0);
 
-            // Create the order
             const order = await OrderModel.create({
-                userId: parseInt(orderData.userId),
-                customerName: orderData.customer.name.trim(),
-                customerPhone: orderData.customer.phone.trim(),
-                customerAddress: orderData.customer.address.trim(),
-                customerNotes: orderData.customer.notes ? orderData.customer.notes.trim() : '',
+                userId: orderData.userId,
+                customer: {
+                    name: orderData.customer.name.trim(),
+                    phone: orderData.customer.phone.trim(),
+                    address: orderData.customer.address.trim(),
+                    notes: orderData.customer.notes ? orderData.customer.notes.trim() : ''
+                },
+                items: orderData.items.map(item => ({
+                    mealId: item.mealId,
+                    name: item.name,
+                    price: parseFloat(item.price),
+                    quantity: parseInt(item.quantity),
+                    sellerId: item.sellerId || null
+                })),
                 total: total,
                 paymentMethod: orderData.paymentMethod,
                 status: 'processing',
-                estimatedDelivery: new Date(Date.now() + 40 * 60000) // 40 minutes from now
+                estimatedDelivery: new Date(Date.now() + 40 * 60000)
             });
-
-            // Create order items
-            const orderItems = await Promise.all(
-                orderData.items.map(item =>
-                    OrderItemModel.create({
-                        orderId: order.id,
-                        mealId: item.mealId,
-                        name: item.name,
-                        price: parseFloat(item.price),
-                        quantity: parseInt(item.quantity),
-                        sellerId: item.sellerId ? parseInt(item.sellerId) : null
-                    })
-                )
-            );
 
             return {
                 success: true,
-                order: formatOrderWithItems(order, orderItems)
+                order: formatOrder(order)
             };
         } catch (error) {
-            if (error.name === 'SequelizeValidationError') {
-                return { success: false, errors: [error.errors[0].message] };
+            if (error.name === 'ValidationError') {
+                const firstError = Object.values(error.errors)[0];
+                return { success: false, errors: [firstError.message] };
             }
             throw error;
         }
@@ -203,15 +154,12 @@ const Order = {
 
     // Update order status
     async updateStatus(id, status) {
-        const order = await OrderModel.findByPk(parseInt(id), {
-            include: [{ model: OrderItemModel, as: 'items' }]
-        });
+        const order = await OrderModel.findById(id);
 
         if (!order) {
             return { success: false, errors: ['Order not found'] };
         }
 
-        // Validate status
         const validStatuses = ['processing', 'preparing', 'enroute', 'delivered', 'cancelled'];
         if (!validStatuses.includes(status)) {
             return { success: false, errors: ['Invalid status'] };
@@ -222,22 +170,19 @@ const Order = {
 
         return {
             success: true,
-            order: formatOrderWithItems(order, order.items || [])
+            order: formatOrder(order)
         };
     },
 
     // Simulate automatic status updates
     async simulateStatusUpdates() {
         try {
-            const orders = await OrderModel.findAll({
-                where: {
-                    status: { [Op.in]: ['processing', 'preparing', 'enroute'] }
-                }
+            const orders = await OrderModel.find({
+                status: { $in: ['processing', 'preparing', 'enroute'] }
             });
 
             for (const order of orders) {
                 const currentIndex = STATUS_FLOW.indexOf(order.status);
-                // Only update if status is in flow and not at the end
                 if (currentIndex !== -1 && currentIndex < STATUS_FLOW.length - 1) {
                     order.status = STATUS_FLOW[currentIndex + 1];
                     await order.save();

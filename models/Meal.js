@@ -1,12 +1,4 @@
-const { Meal: MealModel, User } = require('./index');
-const { Op } = require('sequelize');
-
-// Common include for seller info
-const sellerInclude = {
-    model: User,
-    as: 'seller',
-    attributes: ['id', 'username']
-};
+const MealModel = require('./mongoose/Meal');
 
 // Validation helper
 function validateMeal(mealData) {
@@ -29,37 +21,39 @@ function validateMeal(mealData) {
     return errors;
 }
 
+// Helper: format meal with seller info from populate
+function formatMeal(meal) {
+    const obj = meal.toObject();
+    obj.id = obj._id;
+    obj.seller = obj.userId && obj.userId._id
+        ? { id: obj.userId._id, username: obj.userId.username }
+        : null;
+    obj.userId = obj.userId && obj.userId._id ? obj.userId._id : obj.userId;
+    delete obj.__v;
+    return obj;
+}
+
+const sellerPopulate = { path: 'userId', select: 'username' };
+
 const Meal = {
-    // Ensure data exists (no-op for database, kept for backward compatibility)
-    ensureDataExists() {
-        // Database tables are created via sequelize.sync()
-    },
+    ensureDataExists() {},
 
     // Get all meals
     async findAll() {
-        const meals = await MealModel.findAll({
-            include: [sellerInclude]
-        });
-        return meals.map(m => m.get({ plain: true }));
+        const meals = await MealModel.find({}).populate(sellerPopulate);
+        return meals.map(formatMeal);
     },
 
-    // Find meal by ID (flexible matching for string/number)
+    // Find meal by ID
     async findById(id) {
-        const mealIdNum = parseInt(id);
-        const meal = await MealModel.findByPk(mealIdNum, {
-            include: [sellerInclude]
-        });
-        return meal ? meal.get({ plain: true }) : undefined;
+        const meal = await MealModel.findById(id).populate(sellerPopulate);
+        return meal ? formatMeal(meal) : undefined;
     },
 
     // Find meals by user ID
     async findByUserId(userId) {
-        const userIdNum = parseInt(userId);
-        const meals = await MealModel.findAll({
-            where: { userId: userIdNum },
-            include: [sellerInclude]
-        });
-        return meals.map(m => m.get({ plain: true }));
+        const meals = await MealModel.find({ userId }).populate(sellerPopulate);
+        return meals.map(formatMeal);
     },
 
     // Find meals by category
@@ -67,26 +61,20 @@ const Meal = {
         if (!category) {
             return this.findAll();
         }
-
-        const meals = await MealModel.findAll({
-            where: {
-                category: { [Op.like]: category }
-            },
-            include: [sellerInclude]
-        });
-        return meals.map(m => m.get({ plain: true }));
+        const meals = await MealModel.find({
+            category: { $regex: category, $options: 'i' }
+        }).populate(sellerPopulate);
+        return meals.map(formatMeal);
     },
 
-    // Get popular meals (returns first n meals or all if no limit)
+    // Get popular meals
     async findPopular(limit = null) {
-        const options = {
-            include: [sellerInclude]
-        };
+        let query = MealModel.find({}).populate(sellerPopulate);
         if (limit && limit > 0) {
-            options.limit = limit;
+            query = query.limit(limit);
         }
-        const meals = await MealModel.findAll(options);
-        return meals.map(m => m.get({ plain: true }));
+        const meals = await query;
+        return meals.map(formatMeal);
     },
 
     // Search meals by name or description
@@ -94,17 +82,13 @@ const Meal = {
         if (!query) {
             return this.findAll();
         }
-
-        const meals = await MealModel.findAll({
-            where: {
-                [Op.or]: [
-                    { name: { [Op.like]: `%${query}%` } },
-                    { description: { [Op.like]: `%${query}%` } }
-                ]
-            },
-            include: [sellerInclude]
-        });
-        return meals.map(m => m.get({ plain: true }));
+        const meals = await MealModel.find({
+            $or: [
+                { name: { $regex: query, $options: 'i' } },
+                { description: { $regex: query, $options: 'i' } }
+            ]
+        }).populate(sellerPopulate);
+        return meals.map(formatMeal);
     },
 
     // Create a new meal
@@ -121,13 +105,14 @@ const Meal = {
                 price: parseFloat(mealData.price),
                 image: mealData.image || '/images/meals/default.jpg',
                 category: mealData.category || 'main',
-                userId: parseInt(mealData.userId)
+                userId: mealData.userId
             });
 
-            return { success: true, meal: newMeal.get({ plain: true }) };
+            return { success: true, meal: newMeal.toJSON() };
         } catch (error) {
-            if (error.name === 'SequelizeValidationError') {
-                return { success: false, errors: [error.errors[0].message] };
+            if (error.name === 'ValidationError') {
+                const firstError = Object.values(error.errors)[0];
+                return { success: false, errors: [firstError.message] };
             }
             return { success: false, errors: ['Failed to save meal'] };
         }
@@ -135,20 +120,18 @@ const Meal = {
 
     // Update an existing meal
     async update(id, mealData, requestUserId) {
-        const mealIdNum = parseInt(id);
-        const meal = await MealModel.findByPk(mealIdNum);
+        const meal = await MealModel.findById(id);
 
         if (!meal) {
             return { success: false, errors: ['Meal not found'] };
         }
 
-        // Check ownership - only the creator can update
-        if (meal.userId !== parseInt(requestUserId)) {
+        // Check ownership
+        if (meal.userId.toString() !== requestUserId.toString()) {
             return { success: false, errors: ['You can only update your own meals'] };
         }
 
         try {
-            // Update fields
             if (mealData.name) meal.name = mealData.name.trim();
             if (mealData.description !== undefined) meal.description = mealData.description;
             if (mealData.price !== undefined) meal.price = parseFloat(mealData.price);
@@ -157,10 +140,11 @@ const Meal = {
 
             await meal.save();
 
-            return { success: true, meal: meal.get({ plain: true }) };
+            return { success: true, meal: meal.toJSON() };
         } catch (error) {
-            if (error.name === 'SequelizeValidationError') {
-                return { success: false, errors: [error.errors[0].message] };
+            if (error.name === 'ValidationError') {
+                const firstError = Object.values(error.errors)[0];
+                return { success: false, errors: [firstError.message] };
             }
             return { success: false, errors: ['Failed to update meal'] };
         }
@@ -168,20 +152,19 @@ const Meal = {
 
     // Delete a meal
     async delete(id, requestUserId) {
-        const mealIdNum = parseInt(id);
-        const meal = await MealModel.findByPk(mealIdNum);
+        const meal = await MealModel.findById(id);
 
         if (!meal) {
             return { success: false, errors: ['Meal not found'] };
         }
 
-        // Check ownership - only the creator can delete
-        if (meal.userId !== parseInt(requestUserId)) {
+        // Check ownership
+        if (meal.userId.toString() !== requestUserId.toString()) {
             return { success: false, errors: ['You can only delete your own meals'] };
         }
 
         try {
-            await meal.destroy();
+            await meal.deleteOne();
             return { success: true, message: 'Meal deleted successfully' };
         } catch (error) {
             return { success: false, errors: ['Failed to delete meal'] };
