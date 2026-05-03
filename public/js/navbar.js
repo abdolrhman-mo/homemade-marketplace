@@ -16,7 +16,7 @@
         return `
         <nav class="navbar">
             <div class="nav-left">
-                <span class="logo-text"><a href="home.html">Nefsk Feeh</a></span>
+                <span class="logo-text"><a href="home.html">Homemade Marketplace</a></span>
                 <ul class="menu">
                     <li><a href="home.html">Home</a></li>
                     <li><a href="meals.html">All Meals</a></li>

@@ -1,14 +1,14 @@
 {
-  "name": "project",
+  "name": "homemade-marketplace",
   "version": "1.0.0",
-  "main": "index.js",
+  "main": "server.js",
+  "description": "Home-cooked-food marketplace web app (Node.js + Express + MongoDB)",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "description": "",
   "dependencies": {
     "bcrypt": "^6.0.0",
     "body-parser": "^2.2.1",
