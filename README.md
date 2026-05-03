@@ -1,4 +1,50 @@
-# Project Contributors
+# Homemade Marketplace
+
+Home-cooked-food marketplace web app — Node.js + Express + MongoDB. Built for the **Distributed and Mobile Databases** course; designed around a 3-node MongoDB replica set (`rs0`).
+
+## Run locally (single-laptop simulation of the 3-node replica set)
+
+The lab originally deployed one `mongod` per physical PC. The scripts under `scripts/` simulate the same 3-node replica set on **one laptop** by running three `mongod` processes on `localhost:27017`, `:27018`, `:27019`.
+
+**Prerequisites**
+- Node.js 18+
+- MongoDB 6+ (`mongod` binary). The scripts default to `C:\Program Files\MongoDB\Server\8.2\bin\mongod.exe`; override with `MONGOD=...` if yours lives elsewhere.
+
+**Steps**
+
+```bash
+npm install
+npm run rs:up      # spawn 3 mongods on :27017, :27018, :27019
+npm run rs:init    # initialize replica set rs0 (idempotent)
+npm run rs:status  # verify: 1 PRIMARY + 2 SECONDARY
+npm run seed       # load data/*.json into MongoDB
+npm start          # Express server on :3000
+```
+
+Open http://localhost:3000.
+
+When done: `npm run rs:down` stops all three mongods.
+
+**Failover demo**
+
+```bash
+npm run rs:status            # note which member is PRIMARY (e.g., n1)
+# kill the PRIMARY's PID (from .mongo-data/pids.json)
+npm run rs:status            # a SECONDARY has been promoted to PRIMARY
+```
+
+The Mongoose driver auto-discovers the new primary via `replicaSet=rs0`, so the running app keeps serving requests across the failover.
+
+**Lab deployment (3 physical PCs)**
+
+Override the URI:
+```
+MONGO_URI=mongodb://<ip1>:27017,<ip2>:27017,<ip3>:27017/food-delivery?replicaSet=rs0 npm start
+```
+
+---
+
+## Project Contributors
 
 This document outlines the contributions made by each team member to the project.
 

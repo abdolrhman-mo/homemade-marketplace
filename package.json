@@ -4,6 +4,12 @@
   "main": "server.js",
   "description": "Home-cooked-food marketplace web app (Node.js + Express + MongoDB)",
   "scripts": {
+    "start": "node server.js",
+    "seed": "node migrations/migrate-json-to-mongodb.js",
+    "rs:up": "node scripts/rs-up.js",
+    "rs:down": "node scripts/rs-down.js",
+    "rs:init": "node scripts/rs-init.js",
+    "rs:status": "node scripts/rs-status.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

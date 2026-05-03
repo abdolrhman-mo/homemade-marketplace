@@ -1,6 +1,8 @@
 const mongoose = require('mongoose');
 
-const MONGO_URI = process.env.MONGO_URI || 'mongodb://172.28.96.1:27017,10.72.249.208:27017,10.72.249.206:27017/food-delivery?replicaSet=rs0';
+// Default targets the local 3-node replica set spawned by `npm run rs:up`.
+// In the lab, override with: MONGO_URI=mongodb://<ip1>:27017,<ip2>:27017,<ip3>:27017/food-delivery?replicaSet=rs0
+const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017,localhost:27018,localhost:27019/food-delivery?replicaSet=rs0';
 
 async function connectDB() {
     try {
